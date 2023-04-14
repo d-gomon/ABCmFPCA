@@ -1,0 +1,318 @@
+---
+title: "Applying Age Adjusted Relaxed/Strict MFPCACox to ADNI data"
+author: "Gomon, Daniel"
+date: "24/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12)
+```
+
+```{r echo = TRUE, eval = TRUE}
+rm(list = ls())
+load("ADNImFData.Rdata")
+```
+
+```{r}
+#library(devtools)
+#install_github("d-gomon/MFPCA")
+library(MFPCA)
+```
+
+
+
+First we load the data
+
+
+
+
+
+# Check which variables influence censoring times for IPCW
+
+```{r}
+library(survival)
+ipcw_dat <- cbind(Y_surv, X_baseline)
+ipcw_dat$status <- 1-ipcw_dat$status
+
+coxmod <- coxph(Surv(time, status) ~ AGE + PTGENDER + PTEDUCAT + status.bl + APOE4, data = ipcw_dat)
+summary(coxmod)
+```
+ 
+Looks like only APOE42 has an influence on censoring times. So we will not use IPCW in validation scores.
+
+
+# Parameters
+
+Initialize some parameters to perform mFPCA
+
+```{r echo = TRUE, eval = TRUE}
+#Choice for PVE and number of basis function in mean smoothing to use.
+#We choose for a PVE of 0.93 for every variable and 3 basis functions for mean smoothing
+PVE <- 0.93
+pve_long_21 <- rep(PVE, length(mdat_21))
+uniexp_21 <- vector(mode = "list", length = length(mdat_21))
+for(i in 1:length(mdat_21)){
+  uniexp_21[[i]] <- list(type = "uFPCA", pve = pve_long_21[i], nbasis_mu = 3, nbasis = 3)
+}
+#Validation times
+taims <- seq(3, 13.5, 0.5)
+#Landmark times
+lm_times <- seq(3.5, 5, 0.5)
+```
+
+
+
+
+
+
+
+# Compare models (Strictly landmarked)
+
+For each landmark time, we compare the following models:
+
+1. Reg_long: NO, Reg_Base: NO, AA: NO
+2. Reg_long: YES, Reg_base: NO, AA: NO
+3. Reg_long: YES, Reg_base: Yes, AA: NO
+4. Reg_long: YES, Reg_base: YES, AA: YES
+5. Reg_long: NO, Reg_base: NO, AA: YES
+
+
+
+```{r echo = FALSE, eval = FALSE}
+StrictLM <- vector(mode = "list", length = length(lm_times))
+for(j in 3:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mdat_21, X_baseline = X_baseline, Y_surv = Y_surv,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp_21, n_reps = 20, n_folds = 5,
+                displaypb = TRUE, n_cores = 4, reg_baseline = FALSE, reg_long = FALSE, type = "scores")
+  for(i in 1:5){
+    if(i == 2){
+      params$reg_long = TRUE
+    } 
+    if(i == 3){
+      params$reg_baseline = TRUE
+    }
+    if(i == 4){
+      params$age = age
+    }
+    if(i == 5){
+      params$reg_long = FALSE
+      params$reg_baseline = FALSE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("Age Adjusted?", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("reg_baseline", params$reg_baseline))
+    print(c("AgeDM", params$AgeDM))
+    StrictLM[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    ztemp <- ztemp + 1
+
+  }
+}
+
+save(StrictLM, file = "StrictLM.Rdata")
+```
+
+
+
+```{r}
+load("StrictLM.Rdata")
+```
+
+Compare all the landmarked methods:
+
+```{r, fig.width = 12}
+plot_rcvlist(list(StrictLM[[1]][[1]], StrictLM[[1]][[2]], StrictLM[[1]][[3]], StrictLM[[1]][[4]], StrictLM[[1]][[5]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No", "Long:Yes, Base:Yes, AA:Yes", "Long:NO, Base:NO, AA:Yes"), main_title = "Compare Landmarked Methods, LM 3.5 years")
+
+plot_rcvlist(list(StrictLM[[2]][[1]], StrictLM[[2]][[2]], StrictLM[[2]][[3]], StrictLM[[2]][[4]], StrictLM[[2]][[5]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No", "Long:Yes, Base:Yes, AA:Yes", "Long:NO, Base:NO, AA:Yes"), main_title = "Compare Landmarked Methods, LM 4 years")
+
+plot_rcvlist(list(StrictLM[[3]][[1]], StrictLM[[3]][[2]], StrictLM[[3]][[3]], StrictLM[[3]][[4]], StrictLM[[3]][[5]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No", "Long:Yes, Base:Yes, AA:Yes", "Long:NO, Base:NO, AA:Yes"), main_title = "Compare Landmarked Methods: LM 4.5 years")
+
+plot_rcvlist(list(StrictLM[[4]][[1]], StrictLM[[4]][[2]], StrictLM[[4]][[3]], StrictLM[[4]][[4]], StrictLM[[4]][[5]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No", "Long:Yes, Base:Yes, AA:Yes", "Long:NO, Base:NO, AA:Yes"), main_title = "Compare Landmarked Methods: LM 5 years")
+```
+
+It seems clear that regularization (LASSO) in this case does better than Landmarked MFPCACox. This is especially visible as we increase Landmark time. The New Age de-meaning process seems to do better than the old one when landmarking.
+
+## Effect of regularization on prediction accuracy
+
+```{r}
+plot_rcvlist(list(StrictLM[[1]][[1]], StrictLM[[1]][[2]], StrictLM[[1]][[3]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No"), main_title = "Compare Landmarked Methods, LM 3.5 years")
+
+plot_rcvlist(list(StrictLM[[2]][[1]], StrictLM[[2]][[2]], StrictLM[[2]][[3]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No"), main_title = "Compare Landmarked Methods, LM 4 years")
+
+plot_rcvlist(list(StrictLM[[3]][[1]], StrictLM[[3]][[2]], StrictLM[[3]][[3]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No"), main_title = "Compare Landmarked Methods, LM 4.5 years")
+
+plot_rcvlist(list(StrictLM[[4]][[1]], StrictLM[[4]][[2]], StrictLM[[4]][[3]]), legend = c("Long:NO, Base:NO, AA:No", "Long:YES, Base:NO, AA:No", "Long:Yes, Base:Yes, AA:No"), main_title = "Compare Landmarked Methods, LM 5 years")
+```
+
+Regularization seems to improve prediction accuracy when landmarking, especially when more data is available (later landmark times).
+
+
+## Effect of Age de-meaning with regularized covariates
+
+Compare No AA vs AA when regularizing 
+
+```{r}
+plot_rcvlist(list(StrictLM[[1]][[3]], StrictLM[[1]][[4]]), legend = c("No AA", "AA"),
+             main_title = "Regularized covariates: compare AgeDM methods (LM 3.5)")
+
+plot_rcvlist(list(StrictLM[[2]][[3]], StrictLM[[2]][[4]]), legend = c("No AA", "AA"),
+             main_title = "Regularized covariates: compare AgeDM methods (LM 4)")
+
+plot_rcvlist(list(StrictLM[[3]][[3]], StrictLM[[3]][[4]]), legend = c("No AA", "AA"),
+             main_title = "Regularized covariates: compare AgeDM methods (LM 4.5)")
+
+plot_rcvlist(list(StrictLM[[4]][[3]], StrictLM[[4]][[4]]), legend = c("No AA", "AA"),
+             main_title = "Regularized covariates: compare AgeDM methods (LM 5)")
+
+```
+
+When regularizing, both AgeDM methods seem to reduce prediction accuracy.
+
+
+## Effect of Age de-meaning with unregularized covariates
+
+```{r}
+plot_rcvlist(list(StrictLM[[1]][[1]], StrictLM[[1]][[5]]), legend = c("Reg: No, AA: No", "Reg: No, AA: Yes"),
+             main_title = "Unregularized covariates: compare AgeDM methods (LM 3.5)")
+
+plot_rcvlist(list(StrictLM[[2]][[1]], StrictLM[[2]][[5]]), legend = c("Reg: No, AA: No", "Reg: No, AA: Yes"),
+             main_title = "Unregularized covariates: compare AgeDM methods (LM 4)")
+
+plot_rcvlist(list(StrictLM[[3]][[1]], StrictLM[[3]][[5]]), legend = c("Reg: No, AA: No", "Reg: No, AA: Yes"),
+             main_title = "Unregularized covariates: compare AgeDM methods (LM 4.5)")
+
+plot_rcvlist(list(StrictLM[[4]][[1]], StrictLM[[4]][[5]]), legend = c("Reg: No, AA: No", "Reg: No, AA: Yes"),
+             main_title = "Unregularized covariates: compare AgeDM methods (LM 5)")
+```
+
+Again, AgeDM seems to reduce prediction accuracy when landmarking, even without regularization.
+
+
+
+
+# Compare models (Fake landmarking)
+
+Fake Landmarking:
+
+1. Reg_long: NO, Reg_Base: NO, AgeDM: NO (MFPCACox)
+2. Reg_long: YES, Reg_base: NO, AgeDM: NO
+3. Reg_long: YES, Reg_base: Yes, AgeDM: NO
+4. Reg_long: YES, Reg_base: YES, AgeDM: YES
+5. Reg_long: NO, Reg_base: NO, AgeDM: YES
+
+
+
+```{r echo = FALSE, eval = FALSE}
+RelaxLM <- vector(mode = "list", length = length(lm_times))
+lm_times <- seq(3.5, 5, 0.5)
+for(j in seq_along(seq(3.5, 5, 0.5))){
+  ztemp <- 1
+  params = list(mFData = mdat_21, X_baseline = X_baseline, Y_surv = Y_surv,
+                landmark_time = lm_times[j], FakeLM = TRUE, times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE,
+                M = 50, uniExpansions = uniexp_21, n_reps = 20, n_folds = 5,
+                displaypb = TRUE, n_cores = 4, reg_baseline = FALSE, reg_long = FALSE, type = "scores")
+  for(i in 1:7){
+    if(i == 2){
+      params$reg_long = TRUE
+    } 
+    if(i == 3){
+      params$reg_baseline = TRUE
+    }
+    if(i == 4){
+      params$age = age
+    }
+    if(i == 5){
+      params$reg_long = FALSE
+      params$reg_baseline = FALSE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("reg_baseline", params$reg_baseline))
+    print(c("AgeDM", params$AgeDM))
+    RelaxLM[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    RelaxLM[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  
+  }
+}
+
+
+
+save(RelaxLM, file = "RelaxLM.Rdata")
+```
+
+
+```{r}
+load("RelaxLM.Rdata")
+```
+
+
+
+
+
+
+
+
+# Figures for article
+
+```{r}
+#pdf(file="ADNI_lm35.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="ADNI_lm35.eps", width = 16/3, height = 3, pointsize = 5)
+plot_rcvlist(list(RelaxLM[[1]][[1]], RelaxLM[[1]][[3]], RelaxLM[[1]][[5]], StrictLM[[1]][[1]], StrictLM[[1]][[3]], StrictLM[[1]][[5]]),
+             legend = c("MFPCCox (Relax, No, No)", "LM: Relax, LASSO: Yes, ABC: No", "LM: Relax, LASSO: No, ABC: Yes", "LM: Strict, LASSO: No, ABC: No", "LM: Strict, LASSO: Yes, ABC: No", "LM: Strict, LASSO: No, ABC: Yes"),
+             main_title = "MFPCCox vs Alternatives", sub_title = "Landmark time: 3.5 years", lty = c(6, 6, 6, 1, 1, 1))
+dev.off()
+
+
+#pdf(file="ADNI_lm4.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="ADNI_lm4.eps", width = 16/3, height = 3, pointsize = 5)
+plot_rcvlist(list(RelaxLM[[2]][[1]], RelaxLM[[2]][[3]], RelaxLM[[2]][[5]], StrictLM[[2]][[1]], StrictLM[[2]][[3]], StrictLM[[2]][[5]]),
+             legend = c("MFPCCox (Relax, No, No)", "LM: Relax, LASSO: Yes, ABC: No", "LM: Relax, LASSO: No, ABC: Yes", "LM: Strict, LASSO: No, ABC: No", "LM: Strict, LASSO: Yes, ABC: No", "LM: Strict, LASSO: No, ABC: Yes"),
+             main_title = "MFPCCox vs Alternatives", sub_title = "Landmark time: 4 years", lty = c(6, 6, 6, 1, 1, 1))
+dev.off()
+
+
+#pdf(file="ADNI_lm45.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="ADNI_lm45.eps", width = 16/3, height = 3, pointsize = 5)
+plot_rcvlist(list(RelaxLM[[3]][[1]], RelaxLM[[3]][[3]], RelaxLM[[3]][[5]], StrictLM[[3]][[1]], StrictLM[[3]][[3]], StrictLM[[3]][[5]]),
+             legend = c("MFPCCox (Relax, No, No)", "LM: Relax, LASSO: Yes, ABC: No", "LM: Relax, LASSO: No, ABC: Yes", "LM: Strict, LASSO: No, ABC: No", "LM: Strict, LASSO: Yes, ABC: No", "LM: Strict, LASSO: No, ABC: Yes"),
+             main_title = "MFPCCox vs Alternatives", sub_title = "Landmark time: 4.5 years", lty = c(6, 6, 6, 1, 1, 1))
+dev.off()
+
+
+#pdf(file="ADNI_lm5.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="ADNI_lm5.eps", width = 16/3, height = 3, pointsize = 5)
+plot_rcvlist(list(RelaxLM[[4]][[1]], RelaxLM[[4]][[3]], RelaxLM[[4]][[5]], StrictLM[[4]][[1]], StrictLM[[4]][[3]], StrictLM[[4]][[5]]),
+             legend = c("MFPCCox (Relax, No, No)", "LM: Relax, LASSO: Yes, ABC: No", "LM: Relax, LASSO: No, ABC: Yes", "LM: Strict, LASSO: No, ABC: No", "LM: Strict, LASSO: Yes, ABC: No", "LM: Strict, LASSO: No, ABC: Yes"),
+             main_title = "MFPCCox vs Alternatives", sub_title = "Landmark time: 5 years", lty = c(6, 6, 6, 1, 1, 1))
+dev.off()
+```
+
+```{r}
+n <- 4
+lmtaims <- c(3.5, 4, 4.5, 5)
+ par(oma = c(4,1,1,1), mfrow = c(2, 2), mar = c(2, 2, 1, 1))
+ for (i in 1:n){
+    plot_rcvlist(list(RelaxLM[[i]][[1]], RelaxLM[[i]][[3]], RelaxLM[[i]][[7]], StrictLM[[i]][[1]], StrictLM[[i]][[3]], StrictLM[[i]][[7]]),
+             legend = c("MFPCCox", "LM: Relax, LASSO: Yes, ABC: No", "LM: Relax, LASSO: No, ABC: Yes", "LM: Strict, LASSO: No, ABC: No", "LM: Strict, LASSO: Yes, ABC: No", "LM: Strict, LASSO: No, ABC: Yes"),
+             main = paste0("MFPCCox vs Alternatives, Landmark at ", lmtaims[i], " years."))
+ }
+ par(fig = c(0, 1, 0, 1), oma = c(0, 0, 0, 0), mar = c(0, 0, 0, 0), new = TRUE)
+ plot(0, 0, type = 'l', bty = 'n', xaxt = 'n', yaxt = 'n')
+ legend('bottom',legend = c("Fabricated Metal", "Iron and Steel", "Paper", "Beverages", "Tobacco"), col = c("blue","black", "green", "orange", "pink"), lwd = 5, xpd = TRUE, horiz = TRUE, cex = 1, seg.len=1, bty = 'n')
+ # xpd = TRUE makes the legend plot to the figure
+```
+
+
+
+
+
+

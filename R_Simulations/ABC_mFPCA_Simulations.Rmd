@@ -1,0 +1,464 @@
+---
+title: "mFPCA_manual_simulation"
+author: "Gomon, Daniel"
+date: "12/01/2023"
+output:
+  pdf_document: default
+  word_document: default
+header-includes:
+- \usepackage{bbm}
+- \usepackage{bm}
+---
+
+
+
+
+# Global simulation parameters
+
+
+```{r}
+set.seed(01041996)
+N <- 1600
+p = 3
+M = 6
+times = seq(0, 15, 0.25) #Times at which longitudinal outcomes are sampled.
+age = runif(N, min = 40, max = 90)
+
+
+argvals_sim <- vector(mode = "list", length = p)
+for(i in 1:p){
+  argvals_sim[[i]] <- times
+}
+
+```
+
+Sample observations in $[0,15]$ at quarter year intervals.
+Age sampled uniformly between $40$ and $90$, making the oldest person in the data $105$ years old.
+Six principal multivariate components (M).
+Three (p) longitudinal variables.
+1600 (N) patients.
+
+```{r}
+#library(devtools)
+#Please install the development package from github (otherwise code won't run):
+#install_github("d-gomon/MFPCA")
+library(MFPCA)
+library(RColorBrewer)
+```
+
+
+
+
+
+# Generate data
+
+
+We generate realizations $X_i(\bm{t})$ from a $p(=3)$ dimensional process $X(\bm{t})$, where:
+\begin{align*}
+X_i^{(q)}(\bm{t}) = \sum_{m=1}^{M(=6)} \rho_{i,m} \psi_m(\bm{t})
+\end{align*} Consider the Fourier functions on $[0,45]$:
+\begin{align*}
+    f_0(t) = \frac{1}{|\mathcal{T}|} &&
+    f_{2r-1}(t) = \frac{\sin(rwt)}{\sqrt{\frac{|\mathcal{T}|}{2}}} &&
+    f_{2r}(t) = \frac{\cos(rwt)}{\sqrt{\frac{|\mathcal{T}|}{2}}}
+\end{align*} with $w = 2\pi/|\mathcal{T}|$ Take the first $M = 6$ fourier functions $f_0, f_1, ..., f_5$ on $[0, 15 \cdot p] = [0, 45]$. Let $T_1 = 0, T_2 = 15, T_3 = 30, T_4 = 45$ be split points and $\eta_1 = 0, \eta_2 = 15, \eta_3 = 30$. Then $\mathcal{T}_q = [T_q - \eta_q, T_{q+1} - \eta_{q}] = [0, 15]$ for $q = 1, 2, 3$. Randomly generate signs $\sigma_q \in \{-1, 1\}$ and obtain the eigenfunctions:
+
+\begin{align*}
+\psi_m^{(q)} = \sigma_q \left. f_m \right|_{[T_q, T_{q+1}]} (t_q - \eta_q)
+\end{align*} The scores are then generated from a normal distribution: $\rho_{i,m} \sim \mathcal{N}(0, \nu_m)$ with $\nu_m = 65, 40, 18, 8, 7, 6$. The eigenvalues $\nu_m$ were determined on the ADNI data set decomposition:
+
+
+
+```{r}
+library(funData)
+set.seed(01041996)
+
+
+#Evaluate K-th fourier function on interval Tdomain at times t
+#Tdomain has to be length 2 vector with lower and upper bound
+fbasisfct <- function(t, Tdomain, K){
+  #Get the K-th fourier basis function
+  absT <- abs(Tdomain[2] - Tdomain[1])
+  w = 2*pi/absT
+  if(K == 0){
+    return(rep(1/absT, length(t)))
+  } else if(K %% 2 == 0){
+    r = K/2
+    return(cos(r * w * t)/sqrt(absT/2))
+  } else if(K %% 2 == 1){
+    r = (K+1)/2
+    return(sin(r * w * t)/sqrt(absT/2))
+  }
+}
+
+#Sample signs for data generation (step can be skipped in principle)
+sigma_signs <- sample(c(-1, 1), size = p, replace = TRUE)
+
+#Split points
+T_split <- c(0, 15, 30, 45)
+eta_split <- c(0, 15, 30)
+Tdomain = c(0, 45)
+
+#m-th eigenfunction at times t in dimension q
+psi_fct <- function(t, q, m){
+  return(sigma_signs[q] * fbasisfct(t + T_split[q], Tdomain = Tdomain, K = m))
+}
+
+eValsigma <- eVal(M = M, type = "linear")
+library(MASS)
+#Generate eigenvalues for data simulation
+eVals <- mvrnorm(n = N, mu = c(0, 0, 0, 0, 0, 0), Sigma = diag(eValsigma))
+
+#Function to obtain longitudinal trajectories for patients
+Xt <- function(t, i, q){
+  if(length(t) == 1){
+    sum(eVals[i,] * sapply(1:6, function(k) psi_fct(t, q, m = k)))  
+  } else{
+    as.numeric(eVals[i,] %*% t(sapply(1:6, function(k) psi_fct(t, q = q, m = k))))
+  }
+}
+
+#Visualize psi^{(q)}_1
+curve(psi_fct(x, q = 1, m = 1), 0, 15)
+
+#Visualize longitudinal pattern in q = 1 dimension for subject 1
+curve(Xt(x, i = 1, q = 1), 0, 15)
+
+```
+
+
+
+
+## Generate the multiFunData
+
+```{r}
+
+Xt_q1 = t(sapply(1:N, function(i) Xt(times, i = i, q = 1)))
+Xt_q2 = t(sapply(1:N, function(i) Xt(times, i = i, q = 2)))
+Xt_q3 = t(sapply(1:N, function(i) Xt(times, i = i, q = 3)))
+
+X1 <- funData(argvals = times, Xt_q1)
+X2 <- funData(argvals = times, Xt_q2)
+X3 <- funData(argvals = times, Xt_q3)
+
+
+mFdat_noerror <- multiFunData(list(X1, X2, X3))
+
+mFdat <- addError(mFdat_noerror, sd = 0.1)
+
+```
+
+
+## Mean function for study time
+
+First we need to choose p mean functions and add them to the data.
+Let's choose 3 functions which make sense on [0,15]
+Function 1: $f(x) = 20 - (x/3-3)^2$
+Function 2: $f(x) = \ln(x+1) - 10$
+Function 3: $f(x) = exp(-(x-10)/5) + 5$
+
+```{r}
+fct_1 <- function(x) 20 - ((x-7.5)/1.2)^2
+fct_2 <- function(x) log((x+1)^6) - 10
+fct_3 <- function(x) exp(-(x-10)/5) + 2
+
+curve(fct_1, from = 0, to = 15, ylim = c(-20, 20), xlab = "Time since baseline", ylab = "Value", main = "Mean function in observation time")
+curve(fct_2, add = TRUE, col = "red")
+curve(fct_3, add = TRUE, col = "green")
+
+mean_1 <- funData(argvals = times, X = rbind(sapply(times, fct_1)))
+mean_2 <- funData(argvals = times, X = rbind(sapply(times, fct_2)))
+mean_3 <- funData(argvals = times, X = rbind(sapply(times, fct_3)))
+
+
+mean_fct <- multiFunData(list(mean_1, mean_2, mean_3))
+
+```
+
+
+
+## Mean function for age
+
+```{r}
+cage_fct_1 <- function(x, age) 20-(((age+x)-73)/5)^2
+cage_fct_2 <- function(x, age) log(((age+x)-40)^6) - 10
+cage_fct_3 <- function(x, age) exp(-((age+x)-40)/20) + 5
+
+curve(cage_fct_1(x, age = 40), from = 0, to = 65, main = "Mean function at age", xlab = "Age at observation - 40", ylim = c(-30, 20), ylab = "Value")
+curve(cage_fct_2(x, age = 40), add = TRUE, col = "red")
+curve(cage_fct_3(x, age = 40), add = TRUE, col = "green")
+legend("bottomright", legend = c("q = 1", "q = 2", "q = 3"), col = c("black", "red", "green"), lty = 1)
+
+mean_cage_1 <- funData(argvals = times, X = rbind(sapply(times, cage_fct_1, age = age)))
+mean_cage_2 <- funData(argvals = times, X = rbind(sapply(times, cage_fct_2, age = age)))
+mean_cage_3 <- funData(argvals = times, X = rbind(sapply(times, cage_fct_3, age = age)))
+
+mean_fct_cage <- multiFunData(list(mean_cage_1, mean_cage_2, mean_cage_3))
+
+```
+
+
+
+## Create Age adjusted data as well
+
+```{r}
+mFdat_AA <- mFdat + mean_fct_cage
+mFdat_norm <- mFdat + mean_fct
+```
+
+
+
+
+# Generate survival times
+
+Let the hazard be defined by:
+$$h_i(t) = h_0(t) \exp \left(   \sum_{q=1}^3 \alpha^{(q)} \eta_i^{(q)}(t) \right)$$
+with $\alpha = [0.1, -0.1, 0.2]$ and 
+$$\eta_i^{(q)}(t) = \sum_{m=1}^M \rho_{im} \psi^{(q)}_m(t)$$
+. Generate survival probability $S_i(T_i)$ from uniform distribution and solve for patient specific survival time by solving $S_i(T_i) = \exp \left(- \int_0^{T_i} h_i(t) dt   \right)$ for $T_i$.  Use exponential baseline hazard with $\lambda = \exp(-3)$.
+
+```{r}
+set.seed(01041997)
+#First simulate survival probabilities from standard uniform distribution:
+surv_stdunif <- runif(N)
+
+#
+alpha = c(1, -1, 2)
+
+
+#Function to calculate h_i(t)
+hit_func <- function(t, i){
+  if(length(t) == 1){
+    covs <- sum(alpha * sapply(1:3, function(x) Xt(t = t, i = i, q = x)))  
+  } else{
+    covs <- as.numeric(alpha %*% t(sapply(1:3, function(x) Xt(t = t, i = i, q = x))))
+  }
+  exp(-3) * exp(covs)
+}
+
+
+#Survival function
+Sti_func <- function(t, i){
+  exp(-1*integrate(function(k) hit_func(t = k, i = i), lower = 0, upper = t)$value)
+}
+
+
+#Solve S_i(T_i) = exp(-H_i(T_i))
+sim_surv <- sapply(1:N, function(l) {uniroot(function(t) Sti_func(t, i = l) - surv_stdunif[l], lower = 0, upper = 200)$root})
+
+#Generate random censoring times
+censor_sim <- runif(length(sim_surv), 2, 15)
+
+#Generate survival matrix
+Y_surv_sim <- data.frame(
+  time = ifelse(censor_sim < sim_surv, censor_sim, sim_surv),
+  status = ifelse(censor_sim < sim_surv, 0, 1)
+)
+Y_surv_sim <- as.matrix(Y_surv_sim)
+
+hist(Y_surv_sim[which(Y_surv_sim[, "status"] == 1), "time"])
+#37% observed - 63% censored
+
+```
+
+## Determine true Survival probabilities and scores
+
+```{r}
+truecdf <- matrix(NA, nrow = nObs(mFdat_norm), ncol = length(times))
+colnames(truecdf) <- times
+
+for(i in 1:nObs(mFdat_norm)){
+  truecdf[i,] <- 1 - sapply(times, function(t) Sti_func(t, i = i))
+}
+
+trueScores_3 <- true_validation(trueCDF = truecdf, Y_surv = Y_surv_sim, landmark_time = 3)
+trueScores_6 <- true_validation(trueCDF = truecdf, Y_surv = Y_surv_sim, landmark_time = 6)
+trueScores_9 <- true_validation(trueCDF = truecdf, Y_surv = Y_surv_sim, landmark_time = 9)
+
+trueScores_3$MSE <- rep(0, length(trueScores_3$AUC_pred))
+names(trueScores_3$MSE) <- names(trueScores_3$AUC_pred)
+trueScores_6$MSE <- rep(0, length(trueScores_6$AUC_pred))
+names(trueScores_6$MSE) <- names(trueScores_6$AUC_pred)
+trueScores_9$MSE <- rep(0, length(trueScores_9$AUC_pred))
+names(trueScores_9$MSE) <- names(trueScores_9$AUC_pred)
+
+
+```
+
+
+
+# Fit the models
+
+Some parameters
+
+```{r}
+pve_long <- rep(0.95, length(mFdat_norm))
+uniexp <- vector(mode = "list", length = length(mFdat_norm))
+for(i in 1:length(mFdat_norm)){
+  uniexp[[i]] <- list(type = "uFPCA", pve = pve_long[i])
+}
+taims <- seq(3, 14.75, 0.25)
+lm_times <- c(3, 6, 9)
+```
+
+
+
+```{r echo = FALSE, eval = FALSE}
+manualsim_normal <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_norm, X_baseline = NULL, Y_surv = Y_surv_sim,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 2, n_folds = 10,
+                displaypb = TRUE, n_cores = 2, reg_baseline = FALSE, reg_long = FALSE, type = "scores", truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      params$age = age
+    } 
+    if(i == 3){
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      params$age = age
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_normal[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_normal[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_normal, truecdf, trueScores_3, trueScores_6, trueScores_9, file = "manualsim_normal.Rdata")
+```
+
+
+
+# Plotting function for article
+
+
+
+
+```{r}
+load("manualsim_normal_reps100_folds5.Rdata")
+#load("manualsim_normal.Rdata")
+
+
+#pdf(file="manualsim_normal_LM3.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="manualsim_normal_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal[[1]][[3]], manualsim_normal[[1]][[4]], manualsim_normal[[1]][[1]], manualsim_normal[[1]][[2]], trueScores_3), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 1 (time-on-study data)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3))
+dev.off()
+
+#pdf(file="manualsim_normal_LM6.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="manualsim_normal_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal[[2]][[3]], manualsim_normal[[2]][[4]], manualsim_normal[[2]][[1]], manualsim_normal[[2]][[2]], trueScores_6), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 1 (time-on-study data)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3))
+dev.off()
+
+#pdf(file="manualsim_normal_LM9.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="manualsim_normal_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal[[3]][[3]], manualsim_normal[[3]][[4]], manualsim_normal[[3]][[1]], manualsim_normal[[3]][[2]], trueScores_9), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 1 (time-on-study data)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3))
+dev.off()
+
+```
+
+
+
+
+
+## Age adjusted
+
+
+```{r echo = FALSE, eval = FALSE}
+manualsim_AA <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_AA, X_baseline = NULL, Y_surv = Y_surv_sim,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 20, n_folds = 5,
+                displaypb = TRUE, n_cores = 5, reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+                truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      params$age = age
+    } 
+    if(i == 3){
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      params$age = age
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_AA[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_AA[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_AA, truecdf, trueScores_3, trueScores_6, trueScores_9, file = "manualsim_AA.Rdata")
+```
+
+
+
+```{r}
+load("manualsim_AA_reps100_folds5.Rdata")
+#load("manualsim_AA.Rdata")
+
+#pdf(file="manualsim_AA_LM3.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="manualsim_AA_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA[[1]][[3]], manualsim_AA[[1]][[4]], manualsim_AA[[1]][[1]], manualsim_AA[[1]][[2]], trueScores_3), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 2 (age-at-observation data)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3))
+dev.off()
+
+#pdf(file="manualsim_AA_LM6.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="manualsim_AA_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA[[2]][[3]], manualsim_AA[[2]][[4]], manualsim_AA[[2]][[1]], manualsim_AA[[2]][[2]], trueScores_6), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 2 (age-at-observation data)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3))
+dev.off()
+
+#pdf(file="manualsim_AA_LM9.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="manualsim_AA_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA[[3]][[3]], manualsim_AA[[3]][[4]], manualsim_AA[[3]][[1]], manualsim_AA[[3]][[2]], trueScores_9), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 2 (age-at-observation data)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3))
+dev.off()
+
+```
+
+
+
+# Clarifying pictures for Article:
+
+
+## Mean functions
+
+```{r}
+#pdf(file="meanstudytime.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="meanstudytime.eps", width = 16/3, height = 3, pointsize = 5)
+curve(fct_1, from = 0, to = 15, ylim = c(-20, 20), xlab = "Years since baseline", ylab = "Value", main = "Time-on-study mean function", lwd = 2, cex.main = 2, cex.lab = 2, cex.axis = 1.4)
+curve(fct_2, add = TRUE, col = "red", lwd = 2)
+curve(fct_3, add = TRUE, col = "green", lwd = 2)
+legend("bottom", title = "Dimension", legend = c("q = 1", "q = 2", "q = 3"), col = c("black", "red", "green"), lwd = 2, text.font = 4, bg = "lightblue", cex = 1.3, pt.cex = 1.3, pt.lwd = 2)
+dev.off()
+```
+
+```{r}
+#pdf(file="meanageobservation.pdf", width = 16/3, height = 3, pointsize = 5)
+setEPS()
+postscript(file="meanageobservation.eps", width = 16/3, height = 3, pointsize = 5)
+curve(cage_fct_1(x-40, age = 40), from = 40, to = 105, main = "Age-at-observation mean function", xlab = "Age at observation", ylim = c(-30, 20), ylab = "Value", lwd = 2, cex.main = 2, cex.lab = 2, cex.axis = 1.4)
+curve(cage_fct_2(x-40, age = 40), add = TRUE, col = "red", lwd = 2)
+curve(cage_fct_3(x-40, age = 40), add = TRUE, col = "green", lwd = 2)
+legend("bottom", title = "Dimension", legend = c("q = 1", "q = 2", "q = 3"), col = c("black", "red", "green"), lty = 1, lwd = 2, text.font = 4, bg = "lightblue", cex = 1.3, pt.cex = 1.3, pt.lwd = 2)
+dev.off()
+```
+
