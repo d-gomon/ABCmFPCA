@@ -14,5 +14,5 @@ In this directory the code is contained which was used to perform analyses on th
 
 ## R_Simulations
 
-In this directory the code used to perform the simulation studies can be found. This code is exactly reproducible and depends on a forked version of the original [MFPCA](https://github.com/ClaraHapp/MFPCA) package, which can be found [here](https://github.com/d-gomon/ABCmFPCA). Click the directory for more information.
+In this directory the code used to perform the simulation studies can be found. This code is exactly reproducible and depends on a forked version of the original [MFPCA](https://github.com/ClaraHapp/MFPCA) package, which can be found [here](https://github.com/d-gomon/MFPCA). Click the directory for more information.
 
