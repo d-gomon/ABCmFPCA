@@ -1,0 +1,496 @@
+---
+title: 'Step 3: Additional Exploration'
+author: "Daniel Gomon"
+date: '2023-10-23'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+load("SimulationData.Rdata")
+library(MFPCA)
+```
+
+```{r}
+pve_long <- rep(0.95, length(mFdat_norm))
+uniexp <- vector(mode = "list", length = length(mFdat_norm))
+for(i in 1:length(mFdat_norm)){
+  uniexp[[i]] <- list(type = "uFPCA", pve = pve_long[i])
+}
+taims <- seq(3, 14.75, 0.25)
+lm_times <- c(3, 6, 9)
+```
+
+
+# Clarifying pictures for Article:
+
+## Mean functions
+
+```{r}
+fct_1 <- function(x) 20 - ((x-7.5)/1.2)^2
+fct_2 <- function(x) log((x+1)^6) - 10
+fct_3 <- function(x) exp(-(x-10)/5) + 2
+
+cage_fct_1 <- function(x, age) 20-(((age+x)-73)/5)^2
+cage_fct_2 <- function(x, age) log(((age+x)-40)^6) - 10
+cage_fct_3 <- function(x, age) exp(-((age+x)-40)/20) + 5
+```
+
+```{r}
+#pdf(file="meanstudytime.pdf", width = 16/3, height = 3, pointsize = 5)
+#setEPS()
+#postscript(file="meanstudytime.eps", width = 16/3, height = 3, pointsize = 5)
+curve(fct_1, from = 0, to = 15, ylim = c(-20, 20), xlab = "Years since baseline", ylab = "Value", main = "Time-on-study mean function", lwd = 2, cex.main = 2, cex.lab = 2, cex.axis = 1.4)
+curve(fct_2, add = TRUE, col = "red", lwd = 2)
+curve(fct_3, add = TRUE, col = "green", lwd = 2)
+legend("bottom", title = "Dimension", legend = c("q = 1", "q = 2", "q = 3"), col = c("black", "red", "green"), lwd = 2, text.font = 4, bg = "lightblue", cex = 1.3, pt.cex = 1.3, pt.lwd = 2)
+#dev.off()
+```
+
+```{r}
+#pdf(file="meanageobservation.pdf", width = 16/3, height = 3, pointsize = 5)
+#setEPS()
+#postscript(file="meanageobservation.eps", width = 16/3, height = 3, pointsize = 5)
+curve(cage_fct_1(x-40, age = 40), from = 40, to = 105, main = "Age-at-observation mean function", xlab = "Age at observation", ylim = c(-30, 20), ylab = "Value", lwd = 2, cex.main = 2, cex.lab = 2, cex.axis = 1.4)
+curve(cage_fct_2(x-40, age = 40), add = TRUE, col = "red", lwd = 2)
+curve(cage_fct_3(x-40, age = 40), add = TRUE, col = "green", lwd = 2)
+legend("bottom", title = "Dimension", legend = c("q = 1", "q = 2", "q = 3"), col = c("black", "red", "green"), lty = 1, lwd = 2, text.font = 4, bg = "lightblue", cex = 1.3, pt.cex = 1.3, pt.lwd = 2)
+#dev.off()
+```
+
+
+
+## Number of people at risk and age of people at risk
+
+```{r}
+#Number of people at risk, each quarter year after 3 years.
+numrisk_and_age <- function(Y_surv, times, age){
+  event_times <- Y_surv[,1]
+  ind_risk <- sapply(times, function(x) which(event_times >= x))
+  num_risk <- sapply(times, function(x) sum(event_times >= x))
+  age_dist <- lapply(1:length(times), function(x) age[ind_risk[[x]]] + times[x])
+  age_summary <- sapply(age_dist, summary)
+  names(age_dist) <- times
+  return(list(num_risk = num_risk,
+              ind_risk = ind_risk,
+              age_dist = age_dist,
+              age_summary = age_summary,
+              times = times))
+}
+
+summary_times <- seq(0, 14.75, 0.25)
+N_summary <- length(summary_times)
+```
+
+```{r}
+age_sim <- age
+light_censoring <- numrisk_and_age(Y_surv_sim_light, times = summary_times, age = age_sim)
+median_censoring <- numrisk_and_age(Y_surv_sim_median, times = summary_times, age = age_sim)
+heavy_censoring <- numrisk_and_age(Y_surv_sim_heavy, times = summary_times, age = age_sim)
+```
+
+## Load ADNI data here
+
+```{r eval = FALSE}
+#load("ADNImFData.Rdata")
+#Compare with ADNI (ADNI data has to be loaded separately)
+ADNI_censoring <- numrisk_and_age(Y_surv, times = summary_times, age = age)
+```
+
+## Age of people at risk
+```{r}
+library(ggplot2)
+plot_df <- data.frame(first = c(light_censoring$age_summary[2,], median_censoring$age_summary[2,], heavy_censoring$age_summary[2,], ADNI_censoring$age_summary[2,]),
+                      med = c(light_censoring$age_summary[4,], median_censoring$age_summary[4,], heavy_censoring$age_summary[4,], ADNI_censoring$age_summary[4,]),
+                      third = c(light_censoring$age_summary[5,], median_censoring$age_summary[5,], heavy_censoring$age_summary[5,], ADNI_censoring$age_summary[5,]),
+                      Scenario = as.factor(c(rep(c("light", "median", "heavy", "ADNI"), each = N_summary))),
+                      times = rep(summary_times, 4))
+
+age_plot <- ggplot(data = plot_df) + geom_line(aes(x = times, y = first, colour = Scenario), lty = 2, linewidth = 1.5) + geom_line(aes(x = times, y = med, colour = Scenario), linewidth = 2) +  geom_line(aes(x = times, y = third,  colour = Scenario), lty = 2, linewidth = 1.5) + geom_abline(aes(slope = 1, intercept = 64)) + labs(title = "Age distribution of people at risk in ADNI data/Simulation studies", subtitle = "Solid line: Mean, Dashed lines: first and third quartiles. Black line: identity") + xlab("Time since baseline (Years)") + ylab("Age (years)") + geom_abline(aes(slope = 1, intercept = 73))
+```
+
+## Number of people at risk.
+
+```{r}
+nplot_df <- data.frame(value = c(light_censoring$num_risk, median_censoring$num_risk, heavy_censoring$num_risk, ADNI_censoring$num_risk),
+                       Scenario = as.factor(c(rep(c("light", "median", "heavy", "ADNI"), each = length(summary_times)))),
+                       times = rep(summary_times, 4))
+
+risk_plot <- ggplot(data = nplot_df, aes(x = times, y = value, colour = Scenario)) + geom_line(linewidth = 2) + labs(title = "Number of people at risk in different scenarios") + xlab("Time since baseline (Years)") + ylab("Number of people at risk")
+```
+
+
+## Compare number of people at risk
+
+```{r}
+#compare numbers at risk over scenarios:
+plot(a$times, a$num_risk, main = "Number of people at risk", xlab = "Time (Years)", ylab = "Number", type = "l", ylim = c(0, 1200))
+lines(b$times, b$num_risk, col = "red")
+lines(c$times, c$num_risk, col = "green")
+legend("topright", c("light", "median", "heavy"), col = c("black", "red", "green"), lty = 1)
+```
+
+## Let us check whether the MSE of the Strict vs Relaxed methods changes over landmark time
+
+```{r}
+load("manualsim_normal_median.Rdata")
+
+#Here we want to compare Relaxed non-ABC (index 3) vs Strict non-ABC (index 1)
+sum(abs(manualsim_normal_median[[1]][[3]]$MSE - manualsim_normal_median[[1]][[1]]$MSE))
+sum(abs(manualsim_normal_median[[2]][[3]]$MSE - manualsim_normal_median[[2]][[1]]$MSE))
+sum(abs(manualsim_normal_median[[3]][[3]]$MSE - manualsim_normal_median[[3]][[1]]$MSE))
+
+load("manualsim_AA_median.Rdata")
+#Here we want to compare Relaxed ABC (index 4) vs Strict ABC (index 2)
+sum(abs(manualsim_normal_median[[1]][[4]]$MSE - manualsim_normal_median[[1]][[2]]$MSE))
+sum(abs(manualsim_normal_median[[2]][[4]]$MSE - manualsim_normal_median[[2]][[2]]$MSE))
+sum(abs(manualsim_normal_median[[3]][[4]]$MSE - manualsim_normal_median[[3]][[2]]$MSE))
+```
+
+
+
+
+## Inspecting why wrongly specified relaxed LM can sometimes outperform all other methods at later prediction time points.
+
+
+We check this in Scenario 5 - AA data + median censoring at landmark time 3.
+
+Fit the models with de_bug TRUE
+```{r}
+
+#What happens for Relax Landmarking without age adjustment?
+params = list(mFData = mFdat_AA_median, X_baseline = NULL, Y_surv = Y_surv_sim_median,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = NULL, AgeDM = FALSE, FakeLM = TRUE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 2,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Relax LM without ABC
+wrong_mod <- do.call(cv_mfpccox, params)
+
+
+#What happens for Relax Landmarking with age adjustment?
+params1 = list(mFData = mFdat_AA_median, X_baseline = NULL, Y_surv = Y_surv_sim_median,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = age, AgeDM = FALSE, FakeLM = TRUE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 2,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Relax LM with ABC
+correct_mod <- do.call(cv_mfpccox, params1)
+
+
+#Strict misspecified model for comparison
+params2 = list(mFData = mFdat_AA_median, X_baseline = NULL, Y_surv = Y_surv_sim_median,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 2,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Strict LM with ABC
+strict_mod <- do.call(cv_mfpccox, params2)
+
+#Strict misspecified model for comparison
+params3 = list(mFData = mFdat_AA_median, X_baseline = NULL, Y_surv = Y_surv_sim_median,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = age, AgeDM = FALSE, FakeLM = FALSE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 2,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Strict LM with ABC
+strict_mod_cor <- do.call(cv_mfpccox, params3)
+
+```
+
+
+Now let's look at some outcomes:
+```{r}
+#How many scores are extracted in each of the models:
+print(c(wrong_mod$step2$M, correct_mod$step2$M))
+print(c(strict_mod$step2$M, strict_mod_cor$step2$M))
+#7 vs 10, so with age adjustment we recover more scores. In reality, only 6 scores "exist"
+
+#Let's compare the variances of the estimated scores of both models:
+round(apply(wrong_mod$step2$MFPCAfit$scores, 2, var), 2)
+round(apply(correct_mod$step2$MFPCAfit$scores, 2, var), 2)
+round(apply(strict_mod$step2$MFPCAfit$scores, 2, var), 2)
+round(apply(strict_mod_cor$step2$MFPCAfit$scores, 2, var), 2)
+#It seems that the estimated scores in the misspecified model are extremely unstable. The first component has a variance of 4972, as compared to the maximal variance of 0.77 of the correctly specified model. This would suggest that the wrong model is calculating completely unusable scores.
+
+#Let's compare the estimated mean functions of both models
+plot(wrong_mod$step2$MFPCAfit$meanFunction)
+plot(correct_mod$step2$MFPCAfit$meanFunction)
+#The wrongly specified model recovers the form of the mean functions quite well, but of course on the wrong time frame. Because of this, the value of the mean function is a sort of "average" over the ages, with the middle age groups influencing the function more (more data). The correctly specified model correctly recovers mean functions.
+
+
+#Eigenfunctions:
+plot(wrong_mod$step2$MFPCAfit$functions)
+plot(correct_mod$step2$MFPCAfit$functions)
+plot(strict_mod$step2$MFPCAfit$functions)
+plot(strict_mod_cor$step2$MFPCAfit$functions)
+
+#Now let's look at the cox models:
+exp(wrong_mod$step3$cox_train$coefficients)
+exp(correct_mod$step3$cox_train$coefficients)
+
+#And at the predicted survival probabilities, let's look at the surv probabilities at the last timepoint: 14.75
+boxplot(wrong_mod$step3$prob_surv_pred[, 48])
+boxplot(correct_mod$step3$prob_surv_pred[, 48])
+#We can see that with the wrong model, all survival probabilities are very close to zero, with few outliers on the upper spectrum. This is caused by the large variability in the estimated scores, as now the predicted survival probabilities will also be very unstable. It seems that wrong_mod gets its good prediction accuracy from the fact that it sets all predicted probabilities close to zero, which is close to the truth at later time points.
+
+
+
+```
+
+
+
+
+## Inspecting why ABC performs so well at later time points in Scenarios 1-3.
+
+```{r}
+#What happens for Relax Landmarking without age adjustment?
+params = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+age = NULL, AgeDM = FALSE, FakeLM = TRUE,
+M = 50, uniExpansions = uniexp,  n_folds = 5,
+reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+truecdf = truecdf, de_bug = TRUE)
+#Relax LM without ABC
+correct_mod2 <- do.call(cv_mfpccox, params)
+
+
+#What happens for Relax Landmarking with age adjustment?
+params1 = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = age, AgeDM = FALSE, FakeLM = TRUE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 2,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Relax LM with ABC
+wrong_mod2 <- do.call(cv_mfpccox, params1)
+
+#Strict misspecified model for comparison
+params2 = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = age, AgeDM = FALSE, FakeLM = FALSE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 6,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Strict LM with ABC
+strict_mod2 <- do.call(cv_mfpccox, params2)
+
+#Strict misspecified model for comparison
+params3 = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 7,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Strict LM with ABC
+strict_mod_cor2 <- do.call(cv_mfpccox, params3)
+```
+
+
+```{r}
+#How many scores are extracted in each of the models:
+print(c(wrong_mod2$step2$M, correct_mod2$step2$M))
+print(c(strict_mod2$step2$M, strict_mod_cor2$step2$M))
+#9 vs 10, so with age adjustment we recover less scores. In reality, only 6 scores "exist"
+
+#Let's compare the variances of the estimated scores of both models:
+round(apply(wrong_mod2$step2$MFPCAfit$scores, 2, var), 2)
+round(apply(correct_mod2$step2$MFPCAfit$scores, 2, var), 2)
+round(apply(strict_mod2$step2$MFPCAfit$scores, 2, var), 2)
+round(apply(strict_mod_cor2$step2$MFPCAfit$scores, 2, var), 2)
+#It seems that the estimated scores in the misspecified model are extremely unstable. The first component has a variance of 250, as compared to the maximal variance of 0.77 of the correctly specified model. This would suggest that the wrong model is calculating completely unusable scores.
+
+#Let's compare the estimated mean functions of both models
+plot(wrong_mod2$step2$MFPCAfit$meanFunction)
+plot(correct_mod2$step2$MFPCAfit$meanFunction)
+plot(strict_mod2$step2$MFPCAfit$meanFunction)
+plot(strict_mod_cor2$step2$MFPCAfit$meanFunction)
+
+#Now let's look at the cox models:
+exp(wrong_mod2$step3$cox_train$coefficients)
+exp(correct_mod2$step3$cox_train$coefficients)
+
+#And at the predicted survival probabilities, let's look at the surv probabilities at the last timepoint: 14.75
+boxplot(wrong_mod2$step3$prob_surv_pred[, 48], main = "wrong")
+boxplot(correct_mod2$step3$prob_surv_pred[, 48], main = "correct")
+#With the wrong model, the spread in the predictions seems to be smaller, it gives a "safer" prediction in a sense, not really 
+
+```
+
+Look a little closer at predicted probabilities
+
+```{r}
+prob_cor <- correct_mod2$step3$prob_surv_pred/correct_mod2$step3$prob_surv_pred[,1]
+prob_wrong <- wrong_mod2$step3$prob_surv_pred/wrong_mod2$step3$prob_surv_pred[,1]
+prob_true <- (1 - truecdf[, 13:ncol(truecdf)])/(1-truecdf[, 13])
+prob_true <- prob_true[as.numeric(rownames(wrong_mod2$step2$Y_pred)),-c(49)]
+```
+
+
+
+# Graphical Display of True survival probabilities vs Actual survival:
+
+```{r}
+#Let's check to see how distinct the true survival probability is for the actual status at the final time point
+bdat <- data.frame(prob = 1-truecdf[,60], indic = as.factor(ifelse(Y_surv_sim_light[,1] > 14.75, "alive", "dead/cens")))
+boxplot(bdat$prob ~ bdat$indic, main = "True probabilities of failure by event indicator at 14.75 years")
+
+bdat_wrong <- data.frame(prob = wrong_mod2$step3$prob_surv_pred[,47], indic = as.factor(ifelse(wrong_mod2$step2$Y_pred[,1] > 14.75, "alive", "dead/cens")))
+boxplot(bdat_wrong$prob ~ bdat_wrong$indic, main = "Predicted probabilities using Relaxed ABC in ToS Scenario at LM3 (wrong model)")
+
+
+bdat_correct <- data.frame(prob = correct_mod2$step3$prob_surv_pred[,47], indic = as.factor(ifelse(correct_mod2$step2$Y_pred[,1] > 14.75, "alive", "dead/cens")))
+boxplot(bdat_correct$prob ~ bdat_correct$indic, main = "Predicted probabilities using Relaxed ToS in ToS Scenario at LM3 (correct model)")
+
+#It seems that the correctly specified model underestimates the probability of being alive at later time points!! Why? 
+
+bdat_wrong_strict <- data.frame(prob = strict_mod2$step3$prob_surv_pred[,47], indic = as.factor(ifelse(strict_mod2$step2$Y_pred[,1] > 14.75, "alive", "dead/cens")))
+boxplot(bdat_wrong_strict$prob ~ bdat_wrong_strict$indic, main = "Predicted probabilities using Strict ABC in ToS Scenario at LM3 (wrong model)")
+
+
+bdat_correct_strict <- data.frame(prob = strict_mod_cor2$step3$prob_surv_pred[,47], indic = as.factor(ifelse(strict_mod_cor2$step2$Y_pred[,1] > 14.75, "alive", "dead/cens")))
+boxplot(bdat_correct_strict$prob ~ bdat_correct_strict$indic, main = "Predicted probabilities using Strict ToS in ToS Scenario at LM3 (correct model)")
+
+```
+
+
+
+
+```{r}
+#Plot the difference between predicted and actual probabilities
+plot(strict_mod$step3$prob_surv_pred[,48] - (1-truecdf[as.numeric(rownames(strict_mod$step1$Y_surv_pred)),60]))
+points(strict_mod_cor$step3$prob_surv_pred[,48] - (1-truecdf[as.numeric(rownames(strict_mod_cor$step1$Y_surv_pred)),60]), col = "blue")
+
+#Plot difference of distance between the two. 
+dis_cor <- abs(strict_mod_cor$step3$prob_surv_pred[,48] - (1-truecdf[as.numeric(rownames(strict_mod_cor$step1$Y_surv_pred)),60]))
+dis <- abs(strict_mod$step3$prob_surv_pred[,48] - (1-truecdf[as.numeric(rownames(strict_mod$step1$Y_surv_pred)),60]))
+plot(dis - dis_cor)
+#The correct model predicts a survival probability closer to the true one in # cases:
+sum(dis_cor < dis)
+```
+
+
+
+# Let us evaluate the calculated Brier & AUC scores:
+
+```{r}
+#What happens for Relax Landmarking without age adjustment?
+params = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+age = NULL, AgeDM = FALSE, FakeLM = TRUE,
+M = 50, uniExpansions = uniexp,  n_folds = 5,
+reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+truecdf = truecdf, de_bug = TRUE)
+#Relax LM without ABC
+correct_mod2 <- do.call(cv_mfpccox, params)
+
+
+#What happens for Relax Landmarking with age adjustment?
+params1 = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = age, AgeDM = FALSE, FakeLM = TRUE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 2,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Relax LM with ABC
+wrong_mod2 <- do.call(cv_mfpccox, params1)
+```
+ 
+
+
+
+```{r}
+wrong_mod_validation <- validate_model(predRisk = wrong_mod2$predProbabilities, 
+                                       preddat = wrong_mod2$preddat_stacked,
+                                       times_pred = wrong_mod2$step3$times_pred,
+                                       truecdf = truecdf, landmark_time = lm_times[1],
+                                       FakeLM = TRUE, de_bug_score = TRUE)
+
+
+correct_mod_validation <- validate_model(predRisk = correct_mod2$predProbabilities, 
+                                         preddat = correct_mod2$preddat_stacked,
+                                       times_pred = correct_mod2$step3$times_pred,
+                                       truecdf = truecdf, landmark_time = lm_times[1],
+                                       FakeLM = TRUE, de_bug_score = TRUE)
+
+wrong_mod_AUC <- wrong_mod_validation$score_storage$AUC$score
+correct_mod_AUC <- correct_mod_validation$score_storage$AUC$score
+#Plot AUC + confidence intervals
+plot(wrong_mod_AUC$AUC, ylim = c(0.4, 1))
+lines(wrong_mod_AUC$lower)
+lines(wrong_mod_AUC$upper)
+lines(correct_mod_AUC$AUC, type = "p", col = "red")
+lines(correct_mod_AUC$lower, col = "red")
+lines(correct_mod_AUC$upper, col = "red")
+```
+
+
+
+## How about strict landmarking?
+
+```{r}
+#Strict misspecified model for comparison
+params2 = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = age, AgeDM = FALSE, FakeLM = FALSE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 6,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Strict LM with ABC
+strict_mod2 <- do.call(cv_mfpccox, params2)
+
+#Strict misspecified model for comparison
+params3 = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+              landmark_time = lm_times[1], times_pred = taims[which(taims > lm_times[1])],
+              age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+              M = 50, uniExpansions = uniexp,  n_folds = 5, seed = 7,
+              reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+              truecdf = truecdf, de_bug = TRUE)
+#Strict LM with ABC
+strict_mod_cor2 <- do.call(cv_mfpccox, params3)
+```
+
+```{r}
+wrong_mod_validation <- validate_model(predRisk = strict_mod2$predProbabilities, preddat = strict_mod2$preddat_stacked,
+                                       times_pred = strict_mod2$step3$times_pred,
+                                       truecdf = truecdf, landmark_time = lm_times[1],
+                                       FakeLM = TRUE, de_bug_score = TRUE)
+
+
+correct_mod_validation <- validate_model(predRisk = strict_mod_cor2$predProbabilities, 
+                                         preddat = strict_mod_cor2$preddat_stacked,
+                                       times_pred = strict_mod_cor2$step3$times_pred,
+                                       truecdf = truecdf, landmark_time = lm_times[1],
+                                       FakeLM = TRUE, de_bug_score = TRUE)
+
+wrong_mod_AUC <- wrong_mod_validation$score_storage$AUC$score
+correct_mod_AUC <- correct_mod_validation$score_storage$AUC$score
+#Plot AUC + confidence intervals
+plot(wrong_mod_AUC$AUC, ylim = c(0.4, 1))
+lines(wrong_mod_AUC$lower)
+lines(wrong_mod_AUC$upper)
+lines(correct_mod_AUC$AUC, type = "p", col = "red")
+lines(correct_mod_AUC$lower, col = "red")
+lines(correct_mod_AUC$upper, col = "red")
+
+#Plot Brier + confidence intervals
+wrong_mod_Brier <- wrong_mod_validation$score_storage$Brier$score
+correct_mod_Brier <- correct_mod_validation$score_storage$Brier$score
+plot(wrong_mod_Brier$Brier, ylim = c(0, 0.30))
+lines(wrong_mod_Brier$lower)
+lines(wrong_mod_Brier$upper)
+lines(correct_mod_Brier$Brier, type = "p", col = "red")
+lines(correct_mod_Brier$lower, col = "red")
+lines(correct_mod_Brier$upper, col = "red")
+```
+
+
+

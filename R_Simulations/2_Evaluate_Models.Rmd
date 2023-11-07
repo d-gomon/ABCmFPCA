@@ -1,0 +1,403 @@
+---
+title: 'Step 2: Evaluate_Models'
+author: "Daniel Gomon"
+date: '2023-10-23'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Data + simulation parameters
+
+```{r}
+load("SimulationData.Rdata")
+```
+
+Some parameters
+
+```{r}
+pve_long <- rep(0.95, length(mFdat_norm))
+uniexp <- vector(mode = "list", length = length(mFdat_norm))
+for(i in 1:length(mFdat_norm)){
+  uniexp[[i]] <- list(type = "uFPCA", pve = pve_long[i])
+}
+taims <- seq(3, 14.75, 0.25)
+lm_times <- c(3, 6, 9)
+```
+
+```{r}
+library(MFPCA)
+```
+
+
+```{r}
+summary_times <- summary_light$times
+```
+
+
+
+## Time-on-study scenario + light censoring
+
+
+```{r echo = FALSE, eval = FALSE}
+#Light censoring
+manualsim_normal_light <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_norm_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 2, n_folds = 5,
+                displaypb = TRUE, n_cores = 2, reg_baseline = FALSE, reg_long = FALSE, type = "scores", truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      #Age based centering
+      params$age = age
+    } 
+    if(i == 3){
+      #No age based centering, but Relaxed Landmarking
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      #Age based centering and Relaxed landmarking
+      params$age = age
+      params$FakeLM <- TRUE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_normal_light[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_normal_light[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_normal_light, trueScores_3_light, trueScores_6_light, trueScores_9_light, file = "manualsim_normal_light.Rdata")
+
+```
+
+
+
+
+```{r}
+load("manualsim_normal_light.Rdata")
+
+setEPS()
+postscript(file="norm_light_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_light[[1]][[3]], manualsim_normal_light[[1]][[4]], manualsim_normal_light[[1]][[1]], manualsim_normal_light[[1]][[2]], trueScores_3_light), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 1 (time-on-study data, light censoring)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_light$num_risk[which(summary_times > lm_times[1])])
+dev.off()
+
+setEPS()
+postscript(file="norm_light_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_light[[2]][[3]], manualsim_normal_light[[2]][[4]], manualsim_normal_light[[2]][[1]], manualsim_normal_light[[2]][[2]], trueScores_6_light), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 1 (time-on-study data, light censoring)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_light$num_risk[which(summary_times > lm_times[2])])
+dev.off()
+
+setEPS()
+postscript(file="norm_light_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_light[[3]][[3]], manualsim_normal_light[[3]][[4]], manualsim_normal_light[[3]][[1]], manualsim_normal_light[[3]][[2]], trueScores_9_light), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 1 (time-on-study data, light censoring)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_light$num_risk[which(summary_times > lm_times[3])])
+dev.off()
+```
+
+
+
+## Time-on-study scenario + median censoring
+
+```{r echo = FALSE, eval = FALSE}
+#Median censoring
+manualsim_normal_median <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_norm_median, X_baseline = NULL, Y_surv = Y_surv_sim_median,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 2, n_folds = 10,
+                displaypb = TRUE, n_cores = 2, reg_baseline = FALSE, reg_long = FALSE, type = "scores", truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      #Age based centering
+      params$age = age
+    } 
+    if(i == 3){
+      #No age based centering, but Relaxed Landmarking
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      #Age based centering and Relaxed landmarking
+      params$age = age
+      params$FakeLM <- TRUE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_normal_median[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_normal_median[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_normal_median, trueScores_3_median, trueScores_6_median, trueScores_9_median, file = "manualsim_normal_median.Rdata")
+```
+
+```{r}
+load("manualsim_normal_median.Rdata")
+
+setEPS()
+postscript(file="norm_median_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_median[[1]][[3]], manualsim_normal_median[[1]][[4]], manualsim_normal_median[[1]][[1]], manualsim_normal_median[[1]][[2]], trueScores_3_median), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 2 (time-on-study data, median censoring)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_median$num_risk[which(summary_times > lm_times[1])])
+dev.off()
+
+setEPS()
+postscript(file="norm_median_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_median[[2]][[3]], manualsim_normal_median[[2]][[4]], manualsim_normal_median[[2]][[1]], manualsim_normal_median[[2]][[2]], trueScores_6_median), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 2 (time-on-study data, median censoring)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_median$num_risk[which(summary_times > lm_times[2])])
+dev.off()
+
+setEPS()
+postscript(file="norm_median_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_median[[3]][[3]], manualsim_normal_median[[3]][[4]], manualsim_normal_median[[3]][[1]], manualsim_normal_median[[3]][[2]], trueScores_9_median), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 2 (time-on-study data, median censoring)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_median$num_risk[which(summary_times > lm_times[3])])
+dev.off()
+```
+
+
+## Time-on-study scenario + heavy censoring
+
+```{r echo = FALSE, eval = FALSE}
+#Heavy censoring
+manualsim_normal_heavy <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_norm_heavy, X_baseline = NULL, Y_surv = Y_surv_sim_heavy,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 2, n_folds = 10,
+                displaypb = TRUE, n_cores = 2, reg_baseline = FALSE, reg_long = FALSE, type = "scores", truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      #Age based centering
+      params$age = age
+    } 
+    if(i == 3){
+      #No age based centering, but Relaxed Landmarking
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      #Age based centering and Relaxed landmarking
+      params$age = age
+      params$FakeLM <- TRUE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_normal_heavy[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_normal_heavy[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_normal_heavy, trueScores_3_heavy, trueScores_6_heavy, trueScores_9_heavy, file = "manualsim_normal_heavy.Rdata")
+```
+
+```{r}
+load("manualsim_normal_heavy.Rdata")
+
+setEPS()
+postscript(file="norm_heavy_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_heavy[[1]][[3]], manualsim_normal_heavy[[1]][[4]], manualsim_normal_heavy[[1]][[1]], manualsim_normal_heavy[[1]][[2]], trueScores_3_heavy), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 3 (time-on-study data, heavy censoring)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_heavy$num_risk[which(summary_times > lm_times[1])])
+dev.off()
+
+setEPS()
+postscript(file="norm_heavy_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_heavy[[2]][[3]], manualsim_normal_heavy[[2]][[4]], manualsim_normal_heavy[[2]][[1]], manualsim_normal_heavy[[2]][[2]], trueScores_6_heavy), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 3 (time-on-study data, heavy censoring)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_heavy$num_risk[which(summary_times > lm_times[2])])
+dev.off()
+
+setEPS()
+postscript(file="norm_heavy_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_normal_heavy[[3]][[3]], manualsim_normal_heavy[[3]][[4]], manualsim_normal_heavy[[3]][[1]], manualsim_normal_heavy[[3]][[2]], trueScores_9_heavy), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 3 (time-on-study data, heavy censoring)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_heavy$num_risk[which(summary_times > lm_times[3])])
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+## Age-at-observation scenario + light censoring
+
+
+```{r echo = FALSE, eval = FALSE}
+manualsim_AA_light <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_AA_light, X_baseline = NULL, Y_surv = Y_surv_sim_light,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 2, n_folds = 5,
+                displaypb = TRUE, n_cores = 2, reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+                truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      params$age = age
+    } 
+    if(i == 3){
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      params$age = age
+      params$FakeLM <- TRUE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_AA_light[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_AA_light[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_AA_light, trueScores_3_light, trueScores_6_light, trueScores_9_light, file = "manualsim_AA_light.Rdata")
+```
+
+
+```{r}
+load("manualsim_AA_light.Rdata")
+
+setEPS()
+postscript(file="AA_light_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_light[[1]][[3]], manualsim_AA_light[[1]][[4]], manualsim_AA_light[[1]][[1]], manualsim_AA_light[[1]][[2]], trueScores_3_light), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 4 (age-at-observation data, light censoring)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_light$num_risk[which(summary_times > lm_times[1])])
+dev.off()
+
+setEPS()
+postscript(file="AA_light_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_light[[2]][[3]], manualsim_AA_light[[2]][[4]], manualsim_AA_light[[2]][[1]], manualsim_AA_light[[2]][[2]], trueScores_6_light), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 4 (age-at-observation data, light censoring)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_light$num_risk[which(summary_times > lm_times[2])])
+dev.off()
+
+setEPS()
+postscript(file="AA_light_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_light[[3]][[3]], manualsim_AA_light[[3]][[4]], manualsim_AA_light[[3]][[1]], manualsim_AA_light[[3]][[2]], trueScores_9_light), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 4 (age-at-observation data, light censoring)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_light$num_risk[which(summary_times > lm_times[3])])
+dev.off()
+```
+
+
+
+## Age-at-observation scenario + median censoring
+
+```{r echo = FALSE, eval = FALSE}
+manualsim_AA_median <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_AA_median, X_baseline = NULL, Y_surv = Y_surv_sim_median,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 20, n_folds = 5,
+                displaypb = TRUE, n_cores = 5, reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+                truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      params$age = age
+    } 
+    if(i == 3){
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      params$age = age
+      params$FakeLM <- TRUE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_AA_median[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_AA_median[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_AA_median, trueScores_3_median, trueScores_6_median, trueScores_9_median, file = "manualsim_AA_median.Rdata")
+```
+
+
+```{r}
+load("manualsim_AA_median.Rdata")
+
+setEPS()
+postscript(file="AA_median_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_median[[1]][[3]], manualsim_AA_median[[1]][[4]], manualsim_AA_median[[1]][[1]], manualsim_AA_median[[1]][[2]], trueScores_3_median), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 5 (age-at-observation data, median censoring)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_median$num_risk[which(summary_times > lm_times[1])])
+dev.off()
+
+setEPS()
+postscript(file="AA_median_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_median[[2]][[3]], manualsim_AA_median[[2]][[4]], manualsim_AA_median[[2]][[1]], manualsim_AA_median[[2]][[2]], trueScores_6_median), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 5 (age-at-observation data, median censoring)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_median$num_risk[which(summary_times > lm_times[2])])
+dev.off()
+
+setEPS()
+postscript(file="AA_median_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_median[[3]][[3]], manualsim_AA_median[[3]][[4]], manualsim_AA_median[[3]][[1]], manualsim_AA_median[[3]][[2]], trueScores_9_median), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 5 (age-at-observation data, median censoring)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_median$num_risk[which(summary_times > lm_times[3])])
+dev.off()
+```
+
+
+
+## Age-at-observation scenario + heavy censoring
+
+
+```{r echo = FALSE, eval = FALSE}
+manualsim_AA_heavy <- vector(mode = "list", length = length(lm_times))
+for(j in 1:length(lm_times)){
+  ztemp <- 1
+  params = list(mFData = mFdat_AA_heavy, X_baseline = NULL, Y_surv = Y_surv_sim_heavy,
+                landmark_time = lm_times[j], times_pred = taims[which(taims > lm_times[j])],
+                age = NULL, AgeDM = FALSE, FakeLM = FALSE,
+                M = 50, uniExpansions = uniexp, n_reps = 20, n_folds = 5,
+                displaypb = TRUE, n_cores = 5, reg_baseline = FALSE, reg_long = FALSE, type = "scores",
+                truecdf = truecdf)
+  for(i in 1:4){
+    if(i == 2){
+      params$age = age
+    } 
+    if(i == 3){
+      params["age"] <- list(NULL)
+      params$FakeLM <- TRUE
+    }
+    if(i == 4){
+      params$age = age
+      params$FakeLM <- TRUE
+    }
+    print(c("landmark time", params$landmark_time))
+    print(c("age", ifelse(is.null(params$age), FALSE, TRUE)))
+    print(c("AgeDM", params$AgeDM))
+    manualsim_AA_heavy[[j]][[ztemp]] <- do.call(rcv_mfpccox, params)
+    manualsim_AA_heavy[[j]][[ztemp]]$params <- params
+    ztemp <- ztemp + 1
+  }
+}
+
+save(manualsim_AA_heavy, trueScores_3_heavy, trueScores_6_heavy, trueScores_9_heavy, file = "manualsim_AA_heavy.Rdata")
+```
+
+```{r}
+load("manualsim_AA_heavy.Rdata")
+
+setEPS()
+postscript(file="AA_heavy_LM3.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_heavy[[1]][[3]], manualsim_AA_heavy[[1]][[4]], manualsim_AA_heavy[[1]][[1]], manualsim_AA_heavy[[1]][[2]], trueScores_3_heavy), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 6 (age-at-observation data, heavy censoring)", sub_title = "Landmark time: 3 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_heavy$num_risk[which(summary_times > lm_times[1])])
+dev.off()
+
+setEPS()
+postscript(file="AA_heavy_LM6.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_heavy[[2]][[3]], manualsim_AA_heavy[[2]][[4]], manualsim_AA_heavy[[2]][[1]], manualsim_AA_heavy[[2]][[2]], trueScores_6_heavy), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 6 (age-at-observation data, heavy censoring)", sub_title = "Landmark time: 6 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_heavy$num_risk[which(summary_times > lm_times[2])])
+dev.off()
+
+setEPS()
+postscript(file="AA_heavy_LM9.eps", width = 16/3, height = 2, pointsize = 5)
+plot_rcvlist(list(manualsim_AA_heavy[[3]][[3]], manualsim_AA_heavy[[3]][[4]], manualsim_AA_heavy[[3]][[1]], manualsim_AA_heavy[[3]][[2]], trueScores_9_heavy), legend = c( "MFPCCox (Relax, No)", "LM: Relax, ABC: Yes", "LM: Strict, ABC: No", "LM: Strict, ABC: Yes", "True probabilities"), main_title = "Scenario 6 (age-at-observation data, heavy censoring)", sub_title = "Landmark time: 9 years", lty = c(6, 6, 1, 1, 3), at_risk = summary_heavy$num_risk[which(summary_times > lm_times[3])])
+dev.off()
+```
